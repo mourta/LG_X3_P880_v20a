@@ -141,10 +141,3 @@ void machine_kexec(struct kimage *image)
 	 * pipeline after disabling the MMU. */
 	((typeof(cpu_reset) *)virt_to_phys(cpu_reset))(reboot_code_buffer_phys);
 }
-
-void arch_crash_save_vmcoreinfo(void)
-{
-#ifdef CONFIG_ARM_LPAE
-	VMCOREINFO_CONFIG(ARM_LPAE);
-#endif
-}

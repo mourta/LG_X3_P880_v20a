@@ -660,6 +660,8 @@ struct rq {
 	int cpu;
 	int online;
 
+	unsigned long avg_load_per_task;
+
 	u64 rt_avg;
 	u64 age_stamp;
 	u64 idle_stamp;
@@ -1736,9 +1738,11 @@ static unsigned long cpu_avg_load_per_task(int cpu)
 	unsigned long nr_running = ACCESS_ONCE(rq->nr_running);
 
 	if (nr_running)
-		return rq->load.weight / nr_running;
+		rq->avg_load_per_task = rq->load.weight / nr_running;
+	else
+		rq->avg_load_per_task = 0;
 
-	return 0;
+	return rq->avg_load_per_task;
 }
 
 #ifdef CONFIG_PREEMPT
@@ -4299,7 +4303,7 @@ void task_times(struct task_struct *p, cputime_t *ut, cputime_t *st)
 	 */
 	rtime = nsecs_to_cputime(p->se.sum_exec_runtime);
 
-	if (total && total == (__force u32) total) {
+	if (total) {
 		u64 temp = rtime;
 
 		temp *= utime;
@@ -4332,7 +4336,7 @@ void thread_group_times(struct task_struct *p, cputime_t *ut, cputime_t *st)
 	total = cputime_add(cputime.utime, cputime.stime);
 	rtime = nsecs_to_cputime(cputime.sum_exec_runtime);
 
-	if (total && total == (__force u32) total) {
+	if (total) {
 		u64 temp = rtime;
 
 		temp *= cputime.utime;
@@ -6797,6 +6801,7 @@ static int __cpuinit sched_cpu_active(struct notifier_block *nfb,
 				      unsigned long action, void *hcpu)
 {
 	switch (action & ~CPU_TASKS_FROZEN) {
+	case CPU_STARTING:
 	case CPU_DOWN_FAILED:
 		set_cpu_active((long)hcpu, true);
 		return NOTIFY_OK;

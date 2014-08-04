@@ -105,8 +105,6 @@ unsigned int sysctl_sched_cfs_bandwidth_slice = 5000UL;
 
 static const struct sched_class fair_sched_class;
 
-static unsigned long __read_mostly max_load_balance_interval = HZ/10;
-
 /**************************************************************
  * CFS operations on generic schedulable entities:
  */
@@ -1126,6 +1124,9 @@ check_preempt_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr)
 	 * narrow margin doesn't have to wait for a full slice.
 	 * This also mitigates buddy induced latencies under load.
 	 */
+	if (!sched_feat(WAKEUP_PREEMPT))
+		return;
+
 	if (delta_exec < sysctl_sched_min_granularity)
 		return;
 
@@ -1266,7 +1267,7 @@ entity_tick(struct cfs_rq *cfs_rq, struct sched_entity *curr, int queued)
 		return;
 #endif
 
-	if (cfs_rq->nr_running > 1)
+	if (cfs_rq->nr_running > 1 || !sched_feat(WAKEUP_PREEMPT))
 		check_preempt_tick(cfs_rq, curr);
 }
 
@@ -2552,6 +2553,10 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (unlikely(p->policy != SCHED_NORMAL))
 		return;
 
+
+	if (!sched_feat(WAKEUP_PREEMPT))
+		return;
+
 	find_matching_se(&se, &pse);
 	update_curr(cfs_rq_of(se));
 	BUG_ON(!pse);
@@ -3326,11 +3331,6 @@ static void update_group_power(struct sched_domain *sd, int cpu)
 	struct sched_domain *child = sd->child;
 	struct sched_group *group, *sdg = sd->groups;
 	unsigned long power;
-	unsigned long interval;
-
-	interval = msecs_to_jiffies(sd->balance_interval);
-	interval = clamp(interval, 1UL, max_load_balance_interval);
-	sdg->sgp->next_update = jiffies + interval;
 
 	if (!child) {
 		update_cpu_power(sd, cpu);
@@ -3438,15 +3438,12 @@ static inline void update_sg_lb_stats(struct sched_domain *sd,
 	 * domains. In the newly idle case, we will allow all the cpu's
 	 * to do the newly idle load balance.
 	 */
-	if (local_group) {
-		if (idle != CPU_NEWLY_IDLE) {
-			if (balance_cpu != this_cpu) {
-				*balance = 0;
-				return;
-			}
-			update_group_power(sd, this_cpu);
-		} else if (time_after_eq(jiffies, group->sgp->next_update))
-			update_group_power(sd, this_cpu);
+	if (idle != CPU_NEWLY_IDLE && local_group) {
+		if (balance_cpu != this_cpu) {
+			*balance = 0;
+			return;
+		}
+		update_group_power(sd, this_cpu);
 	}
 
 	/* Adjust by relative CPU power of the group */
@@ -4546,6 +4543,8 @@ void select_nohz_load_balancer(int stop_tick)
 
 static DEFINE_SPINLOCK(balancing);
 
+static unsigned long __read_mostly max_load_balance_interval = HZ/10;
+
 /*
  * Scale the max load_balance interval with the number of CPUs in the system.
  * This trades load-balance latency on larger machines for less cross talk.
@@ -4708,7 +4707,7 @@ static inline int nohz_kick_needed(struct rq *rq, int cpu)
 	ret = atomic_cmpxchg(&nohz.first_pick_cpu, nr_cpu_ids, cpu);
 	if (ret == nr_cpu_ids || ret == cpu) {
 		atomic_cmpxchg(&nohz.second_pick_cpu, cpu, nr_cpu_ids);
-		if (rq->nr_running >  DIV_ROUND_CLOSEST(rq->cpu_power, SCHED_POWER_SCALE))
+		if (rq->nr_running > 1)
 			return 1;
 	} else {
 		ret = atomic_cmpxchg(&nohz.second_pick_cpu, nr_cpu_ids, cpu);
