@@ -1,1 +1,0 @@
-obj-$(CONFIG_MACH_RGB_CONVERTOR_SPI)	+= ssd2825_bridge.o
